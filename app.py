@@ -104,7 +104,7 @@ HTML = """
 
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 16px;
     }
 
@@ -136,6 +136,7 @@ HTML = """
       gap: 8px;
       flex-wrap: wrap;
       align-items: center;
+      margin-bottom: 12px;
     }
 
     .pill {
@@ -166,8 +167,24 @@ HTML = """
       color: #d8b4fe;
     }
 
+    .chart-box {
+      margin-top: 10px;
+      margin-bottom: 10px;
+      height: 70px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 14px;
+      padding: 6px;
+      overflow: hidden;
+    }
+
+    .chart-box svg {
+      width: 100%;
+      height: 58px;
+      display: block;
+    }
+
     .card-note {
-      margin-top: 12px;
+      margin-top: 10px;
       color: #94a3b8;
       font-size: 13px;
       line-height: 1.5;
@@ -228,7 +245,7 @@ HTML = """
 
     .global-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 16px;
     }
 
@@ -266,7 +283,7 @@ HTML = """
       <div class="hero-right">
         <div class="top-box">
           <div class="top-label">Durum</div>
-          <div class="top-value">Canlı piyasa verileri aktif</div>
+          <div class="top-value">Canlı piyasa verileri ve mini grafikler aktif</div>
           <div class="top-sub">Sayfa 60 saniyede bir otomatik yenilenir.</div>
         </div>
 
@@ -303,6 +320,7 @@ HTML = """
             </div>
             <div class="pill pill-neutral">{{ item.signal }}</div>
           </div>
+          <div class="chart-box">{{ item.chart|safe }}</div>
           <div class="card-note">{{ item.comment }}</div>
         </div>
         {% endfor %}
@@ -322,6 +340,7 @@ HTML = """
             </div>
             <div class="pill pill-strong">{{ item.badge }}</div>
           </div>
+          <div class="chart-box">{{ item.chart|safe }}</div>
           <div class="card-note">{{ item.comment }}</div>
         </div>
         {% endfor %}
@@ -352,7 +371,7 @@ HTML = """
           <div class="summary-title">Genel Yorum</div>
           <div class="footer-note">{{ long_comment }}</div>
           <div class="footer-note">
-            Bu sürümde BIST100, Brent Petrol ve Nasdaq ekranda canlı alan olarak hazırlandı.
+            Bu sürümde BIST100, Brent Petrol ve Nasdaq canlı olarak izlenir. Mini grafikler son kısa dönem hareketini görsel olarak gösterir.
           </div>
         </div>
       </div>
@@ -371,6 +390,7 @@ HTML = """
             </div>
             <div class="pill pill-strong">{{ item.signal }}</div>
           </div>
+          <div class="chart-box">{{ item.chart|safe }}</div>
           <div class="card-note">{{ item.comment }}</div>
         </div>
         {% endfor %}
@@ -394,11 +414,12 @@ def format_percent(value):
     formatted = f"{value:.2f}".replace(".", ",")
     return f"{sign}% {formatted}"
 
-def quote_from_ticker(symbol):
+def quote_and_history_from_ticker(symbol, period="7d", interval="1d"):
     t = yf.Ticker(symbol)
 
     current = None
     previous = None
+    history_points = []
 
     try:
         fi = t.fast_info
@@ -407,17 +428,19 @@ def quote_from_ticker(symbol):
     except Exception:
         pass
 
-    if current is None or previous is None:
-        try:
-            hist = t.history(period="5d", interval="1d", auto_adjust=False)
-            if not hist.empty:
+    try:
+        hist = t.history(period=period, interval=interval, auto_adjust=False)
+        if not hist.empty:
+            history_points = [float(x) for x in hist["Close"].tolist() if not math.isnan(float(x))]
+            if current is None:
                 current = float(hist["Close"].iloc[-1])
+            if previous is None:
                 if len(hist) >= 2:
                     previous = float(hist["Close"].iloc[-2])
                 else:
-                    previous = current
-        except Exception:
-            pass
+                    previous = float(hist["Close"].iloc[-1])
+    except Exception:
+        pass
 
     if current is None:
         return None
@@ -427,11 +450,52 @@ def quote_from_ticker(symbol):
     else:
         pct = ((current - previous) / previous) * 100
 
+    if not history_points:
+        history_points = [float(current), float(current)]
+
     return {
         "current": float(current),
         "previous": float(previous if previous is not None else current),
         "pct": float(pct),
+        "history": history_points,
     }
+
+def build_sparkline_svg(points):
+    if not points or len(points) < 2:
+        points = [1, 1]
+
+    width = 240
+    height = 58
+    padding = 4
+
+    min_v = min(points)
+    max_v = max(points)
+
+    if max_v == min_v:
+        max_v += 1
+
+    coords = []
+    for i, val in enumerate(points):
+        x = padding + (i * (width - padding * 2) / (len(points) - 1))
+        y = padding + ((max_v - val) * (height - padding * 2) / (max_v - min_v))
+        coords.append((x, y))
+
+    polyline = " ".join([f"{x:.1f},{y:.1f}" for x, y in coords])
+
+    line_color = "#4ade80" if points[-1] >= points[0] else "#f87171"
+
+    return f'''
+    <svg viewBox="0 0 {width} {height}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <polyline
+        fill="none"
+        stroke="{line_color}"
+        stroke-width="3"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        points="{polyline}"
+      />
+    </svg>
+    '''
 
 def signal_from_pct(pct):
     if pct >= 2:
@@ -477,13 +541,15 @@ def get_exchange_data():
 
     items = []
     for symbol, name in mapping:
-        q = quote_from_ticker(symbol)
+        q = quote_and_history_from_ticker(symbol)
         if q is None:
             price = None
             pct = 0.0
+            chart = build_sparkline_svg([1, 1])
         else:
             price = q["current"]
             pct = q["pct"]
+            chart = build_sparkline_svg(q["history"])
 
         items.append({
             "name": name,
@@ -494,21 +560,30 @@ def get_exchange_data():
             "signal": signal_from_pct(pct),
             "comment": currency_comment(name, pct),
             "raw_price": price or 0.0,
+            "chart": chart,
         })
 
     return items
 
 def get_gold_data():
-    gold = quote_from_ticker("GC=F")
-    usdtry = quote_from_ticker("USDTRY=X")
+    gold = quote_and_history_from_ticker("GC=F", period="1mo", interval="1d")
+    usdtry = quote_and_history_from_ticker("USDTRY=X", period="1mo", interval="1d")
 
     if gold is None or usdtry is None:
         gram = None
         gram_pct = 0.0
+        gram_history = [1, 1]
     else:
-        # ons altın USD fiyatını gram/TL'ye yaklaşık çevirme
         gram = (gold["current"] * usdtry["current"]) / 31.1035
         gram_pct = gold["pct"] + usdtry["pct"]
+
+        min_len = min(len(gold["history"]), len(usdtry["history"]))
+        gram_history = []
+        for i in range(min_len):
+            gram_history.append((gold["history"][-min_len + i] * usdtry["history"][-min_len + i]) / 31.1035)
+
+        if len(gram_history) < 2:
+            gram_history = [gram, gram]
 
     if gram is None:
         ceyrek = yarim = tam = None
@@ -518,10 +593,10 @@ def get_gold_data():
         tam = ceyrek * 4
 
     items = [
-        {"name": "Gram Altın", "price": gram, "badge": "Canlı", "pct": gram_pct},
-        {"name": "Çeyrek Altın", "price": ceyrek, "badge": "Tahmini", "pct": gram_pct},
-        {"name": "Yarım Altın", "price": yarim, "badge": "Tahmini", "pct": gram_pct},
-        {"name": "Tam Altın", "price": tam, "badge": "Tahmini", "pct": gram_pct},
+        {"name": "Gram Altın", "price": gram, "badge": "Canlı", "pct": gram_pct, "history": gram_history},
+        {"name": "Çeyrek Altın", "price": ceyrek, "badge": "Tahmini", "pct": gram_pct, "history": [x * 1.65 for x in gram_history]},
+        {"name": "Yarım Altın", "price": yarim, "badge": "Tahmini", "pct": gram_pct, "history": [x * 3.3 for x in gram_history]},
+        {"name": "Tam Altın", "price": tam, "badge": "Tahmini", "pct": gram_pct, "history": [x * 6.6 for x in gram_history]},
     ]
 
     for item in items:
@@ -530,13 +605,13 @@ def get_gold_data():
         item["signal"] = signal_from_pct(item["pct"])
         item["comment"] = market_comment(item["name"], item["pct"])
         item["price"] = format_tr_number(item["price"], 2)
-        item["raw_price"] = item["price"]
+        item["chart"] = build_sparkline_svg(item["history"])
 
     return items
 
 def get_global_data():
     mapping = [
-        ("BTC-TRY", "Bitcoin", "₺ ", 0),
+        ("BTC-USD", "Bitcoin", "$ ", 0),
         ("XU100.IS", "BIST100", "", 2),
         ("BZ=F", "Brent Petrol", "$ ", 2),
         ("^IXIC", "Nasdaq", "", 2),
@@ -544,13 +619,15 @@ def get_global_data():
 
     items = []
     for symbol, name, prefix, decimals in mapping:
-        q = quote_from_ticker(symbol)
+        q = quote_and_history_from_ticker(symbol, period="1mo", interval="1d")
         if q is None:
             current = None
             pct = 0.0
+            chart = build_sparkline_svg([1, 1])
         else:
             current = q["current"]
             pct = q["pct"]
+            chart = build_sparkline_svg(q["history"])
 
         items.append({
             "name": name,
@@ -561,6 +638,7 @@ def get_global_data():
             "signal": signal_from_pct(pct),
             "comment": market_comment(name, pct),
             "raw_price": current or 0.0,
+            "chart": chart,
         })
 
     return items
@@ -612,7 +690,7 @@ def build_long_comment(doviz, altin, global_data, market_score):
     return (
         f"Genel piyasa skoru {market_score}/100 seviyesinde. Döviz tarafında dolar ve euro izlenirken, "
         f"gram altın {altin[0]['pct_text']} değişimle dikkat çekiyor. Global tarafta Bitcoin, BIST100, "
-        f"Brent petrol ve Nasdaq aynı ekranda takip edilebiliyor."
+        f"Brent petrol ve Nasdaq aynı ekranda yüzdesel değişimlerle takip edilebiliyor."
     )
 
 @app.route("/")
