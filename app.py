@@ -300,7 +300,7 @@ HTML = """
 
     .summary-grid {
       display: grid;
-      grid-template-columns: 1.2fr 1fr;
+      grid-template-columns: 1.1fr 1fr;
       gap: 16px;
     }
 
@@ -354,16 +354,33 @@ HTML = """
       text-align: center;
     }
 
-    .trend-up {
-      color: var(--green);
+    .trend-up { color: var(--green); }
+    .trend-down { color: var(--red); }
+    .trend-neutral { color: var(--gray); }
+
+    .simple-comment {
+      display: grid;
+      gap: 10px;
     }
 
-    .trend-down {
-      color: var(--red);
+    .simple-line {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: var(--soft);
+      border: 1px solid var(--card-border);
+      font-size: 14px;
+      line-height: 1.5;
     }
 
-    .trend-neutral {
-      color: var(--gray);
+    .simple-icon {
+      font-size: 18px;
+      font-weight: 900;
+      min-width: 22px;
+      text-align: center;
+      margin-top: 1px;
     }
 
     .global-grid {
@@ -646,10 +663,20 @@ HTML = """
 
         <div class="summary-box">
           <div class="summary-title">Genel Yorum</div>
-          <div class="footer-note">{{ long_comment }}</div>
-          <div class="footer-note">
-            Bu sürümde BIST100, Brent Petrol ve Nasdaq canlı olarak izlenir. Mini grafikler kısa dönem hareketini gösterir.
+
+          <div class="simple-comment">
+            {% for line in simple_comments %}
+            <div class="simple-line">
+              <div class="simple-icon
+                {% if line.icon == '▲' %}trend-up{% elif line.icon == '▼' %}trend-down{% else %}trend-neutral{% endif %}">
+                {{ line.icon }}
+              </div>
+              <div>{{ line.text }}</div>
+            </div>
+            {% endfor %}
           </div>
+
+          <div class="footer-note">Son sunucu güncellemesi: {{ updated_at }}</div>
         </div>
       </div>
     </div>
@@ -671,7 +698,15 @@ HTML = """
             <div class="pill {% if item.pct_value > 0 %}pill-up{% elif item.pct_value < 0 %}pill-down{% else %}pill-neutral{% endif %}">
               {{ item.pct_text }}
             </div>
-            <div class="pill pill-strong">{{ item.signal }}</div>
+            <div class="pill pill-strong">
+              {% if item.pct_value > 0 %}
+                ▲
+              {% elif item.pct_value < 0 %}
+                ▼
+              {% else %}
+                •
+              {% endif %}
+            </div>
           </div>
           <div class="chart-box">{{ item.chart|safe }}</div>
           <div class="card-note">{{ item.comment }}</div>
@@ -1090,6 +1125,13 @@ def signal_from_pct(pct):
         return "Aşağı"
     return "Dengeli"
 
+def trend_icon_from_pct(pct):
+    if pct > 0:
+        return "▲"
+    if pct < 0:
+        return "▼"
+    return "•"
+
 def currency_comment(name, pct):
     signal = signal_from_pct(pct)
     if signal == "Güçlü":
@@ -1243,8 +1285,8 @@ def build_summary(doviz, altin, global_data):
 
 def build_insight(doviz, altin, global_data):
     return (
-        f"Dolar {doviz[0]['pct_text']}, Euro {doviz[1]['pct_text']} ve gram altın {altin[0]['pct_text']} "
-        f"değişim gösteriyor. BIST100 tarafında son görünüm {global_data[1]['signal']}."
+        f"Dolar {doviz[0]['pct_text']}, Euro {doviz[1]['pct_text']} ve gram altın {altin[0]['pct_text']} değişmiş. "
+        f"BIST100 şu an {global_data[1]['signal'].lower()} durumda."
     )
 
 def calculate_market_score(doviz, altin, global_data):
@@ -1256,12 +1298,12 @@ def calculate_market_score(doviz, altin, global_data):
 
 def get_market_score_note(score):
     if score >= 85:
-        return "Piyasada oldukça yüksek hareketlilik var."
+        return "Piyasa çok hareketli."
     if score >= 65:
-        return "Piyasa aktif ve yakından izlenmeli."
+        return "Piyasa aktif."
     if score >= 45:
-        return "Piyasa dengeli ama canlı."
-    return "Piyasa daha sakin görünümde."
+        return "Piyasa dengeli."
+    return "Piyasa sakin."
 
 def get_top_asset(doviz, altin, global_data):
     candidates = [
@@ -1274,12 +1316,40 @@ def get_top_asset(doviz, altin, global_data):
     ]
     return max(candidates, key=lambda x: x["pct"])
 
-def build_long_comment(doviz, altin, global_data, market_score):
-    return (
-        f"Genel piyasa skoru {market_score}/100 seviyesinde. Döviz tarafında dolar ve euro izlenirken, "
-        f"gram altın {altin[0]['pct_text']} değişimle dikkat çekiyor. Global tarafta Bitcoin, BIST100, "
-        f"Brent petrol ve Nasdaq aynı ekranda yüzdesel değişimlerle takip edilebiliyor."
-    )
+def build_simple_comments(doviz, altin, global_data, market_score):
+    comments = []
+
+    dolar_pct = doviz[0]["pct_value"]
+    altin_pct = altin[0]["pct_value"]
+    bist_pct = global_data[1]["pct_value"]
+    btc_pct = global_data[0]["pct_value"]
+
+    comments.append({
+        "icon": trend_icon_from_pct(dolar_pct),
+        "text": f"Dolar bugün {('yükselmiş' if dolar_pct > 0 else 'düşmüş' if dolar_pct < 0 else 'aynı kalmış')}."
+    })
+
+    comments.append({
+        "icon": trend_icon_from_pct(altin_pct),
+        "text": f"Gram altın şu an {('güçlü duruyor' if altin_pct > 0 else 'zayıf duruyor' if altin_pct < 0 else 'sakin duruyor')}."
+    })
+
+    comments.append({
+        "icon": trend_icon_from_pct(bist_pct),
+        "text": f"BIST100 tarafı {('pozitif' if bist_pct > 0 else 'negatif' if bist_pct < 0 else 'dengeli')} görünüyor."
+    })
+
+    comments.append({
+        "icon": trend_icon_from_pct(btc_pct),
+        "text": f"Bitcoin tarafında bugün {('hafif yükseliş' if btc_pct > 0 else 'hafif düşüş' if btc_pct < 0 else 'sakin seyir')} var."
+    })
+
+    comments.append({
+        "icon": "•",
+        "text": f"Genel piyasa skoru {market_score}/100. Yani piyasa {('hareketli' if market_score >= 65 else 'orta seviyede' if market_score >= 45 else 'sakin')}."
+    })
+
+    return comments
 
 @app.route("/")
 def home():
@@ -1292,7 +1362,7 @@ def home():
     market_score = calculate_market_score(doviz, altin, global_data)
     market_score_note = get_market_score_note(market_score)
     top_asset = get_top_asset(doviz, altin, global_data)
-    long_comment = build_long_comment(doviz, altin, global_data, market_score)
+    simple_comments = build_simple_comments(doviz, altin, global_data, market_score)
 
     all_assets = []
     for item in doviz:
@@ -1334,7 +1404,7 @@ def home():
         market_score=market_score,
         market_score_note=market_score_note,
         top_asset=top_asset,
-        long_comment=long_comment,
+        simple_comments=simple_comments,
         all_assets=all_assets
     )
 
