@@ -1,6 +1,7 @@
 from flask import Flask, render_template_string
 from datetime import datetime
-import requests
+import math
+import yfinance as yf
 
 app = Flask(__name__)
 
@@ -23,7 +24,7 @@ HTML = """
     }
 
     .container {
-      max-width: 1220px;
+      max-width: 1240px;
       margin: 0 auto;
       padding: 28px 20px 40px;
     }
@@ -259,19 +260,19 @@ HTML = """
     <div class="hero">
       <div class="hero-left">
         <h1 class="title">Piyasa Takip 🚀</h1>
-        <p class="subtitle">Döviz, altın ve akıllı piyasa verilerini tek ekranda takip edin.</p>
+        <p class="subtitle">Döviz, altın ve önemli piyasa verilerini tek ekranda takip edin.</p>
       </div>
 
       <div class="hero-right">
         <div class="top-box">
           <div class="top-label">Durum</div>
-          <div class="top-value">Canlı döviz, altın ve Bitcoin aktif</div>
+          <div class="top-value">Canlı piyasa verileri aktif</div>
           <div class="top-sub">Sayfa 60 saniyede bir otomatik yenilenir.</div>
         </div>
 
         <div class="top-box">
           <div class="top-label">Genel Piyasa Skoru</div>
-          <div class="top-value">{{ market_score }}</div>
+          <div class="top-value">{{ market_score }}/100</div>
           <div class="top-sub">{{ market_score_note }}</div>
         </div>
 
@@ -295,10 +296,10 @@ HTML = """
         {% for item in doviz %}
         <div class="card">
           <div class="card-label">{{ item.name }}</div>
-          <div class="card-price">₺ {{ item.price }}</div>
+          <div class="card-price">{{ item.currency_symbol }} {{ item.price }}</div>
           <div class="pill-row">
-            <div class="pill {% if item.change > 0 %}pill-up{% elif item.change < 0 %}pill-down{% else %}pill-neutral{% endif %}">
-              {% if item.change > 0 %}+{% endif %}{{ item.change }}
+            <div class="pill {% if item.pct_value > 0 %}pill-up{% elif item.pct_value < 0 %}pill-down{% else %}pill-neutral{% endif %}">
+              {{ item.pct_text }}
             </div>
             <div class="pill pill-neutral">{{ item.signal }}</div>
           </div>
@@ -316,8 +317,10 @@ HTML = """
           <div class="card-label">{{ item.name }}</div>
           <div class="card-price">₺ {{ item.price }}</div>
           <div class="pill-row">
-            <div class="pill pill-neutral">{{ item.badge }}</div>
-            <div class="pill pill-strong">{{ item.signal }}</div>
+            <div class="pill {% if item.pct_value > 0 %}pill-up{% elif item.pct_value < 0 %}pill-down{% else %}pill-neutral{% endif %}">
+              {{ item.pct_text }}
+            </div>
+            <div class="pill pill-strong">{{ item.badge }}</div>
           </div>
           <div class="card-note">{{ item.comment }}</div>
         </div>
@@ -349,7 +352,7 @@ HTML = """
           <div class="summary-title">Genel Yorum</div>
           <div class="footer-note">{{ long_comment }}</div>
           <div class="footer-note">
-            Bu alanı daha sonra kişisel uyarılar, alarm sistemi ve favori listesi ile büyütebiliriz.
+            Bu sürümde BIST100, Brent Petrol ve Nasdaq ekranda canlı alan olarak hazırlandı.
           </div>
         </div>
       </div>
@@ -361,9 +364,11 @@ HTML = """
         {% for item in global_data %}
         <div class="card">
           <div class="card-label">{{ item.name }}</div>
-          <div class="card-price">{{ item.value }}</div>
+          <div class="card-price">{{ item.prefix }}{{ item.price }}</div>
           <div class="pill-row">
-            <div class="pill pill-neutral">{{ item.note }}</div>
+            <div class="pill {% if item.pct_value > 0 %}pill-up{% elif item.pct_value < 0 %}pill-down{% else %}pill-neutral{% endif %}">
+              {{ item.pct_text }}
+            </div>
             <div class="pill pill-strong">{{ item.signal }}</div>
           </div>
           <div class="card-note">{{ item.comment }}</div>
@@ -376,228 +381,238 @@ HTML = """
 </html>
 """
 
-def safe_round(value, digits=2):
+def format_tr_number(value, decimals=2):
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return "Yüklenemedi"
+    formatted = f"{value:,.{decimals}f}"
+    return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
+
+def format_percent(value):
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return "% 0,00"
+    sign = "+" if value > 0 else ""
+    formatted = f"{value:.2f}".replace(".", ",")
+    return f"{sign}% {formatted}"
+
+def quote_from_ticker(symbol):
+    t = yf.Ticker(symbol)
+
+    current = None
+    previous = None
+
     try:
-        return round(float(value), digits)
+        fi = t.fast_info
+        current = fi.get("lastPrice")
+        previous = fi.get("previousClose")
     except Exception:
-        return value
+        pass
 
-def format_try(value):
-    return f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    if current is None or previous is None:
+        try:
+            hist = t.history(period="5d", interval="1d", auto_adjust=False)
+            if not hist.empty:
+                current = float(hist["Close"].iloc[-1])
+                if len(hist) >= 2:
+                    previous = float(hist["Close"].iloc[-2])
+                else:
+                    previous = current
+        except Exception:
+            pass
 
-def format_try_no_decimals(value):
-    return f"{value:,.0f}".replace(",", ".")
-
-def get_try_rates():
-    url = "https://open.er-api.com/v6/latest/TRY"
-    response = requests.get(url, timeout=15)
-    response.raise_for_status()
-    data = response.json()
-    rates = data["rates"]
-
-    usd_try = round(1 / rates["USD"], 2)
-    eur_try = round(1 / rates["EUR"], 2)
-    gbp_try = round(1 / rates["GBP"], 2)
-    pln_try = round(1 / rates["PLN"], 4)
-
-    return usd_try, eur_try, gbp_try, pln_try
-
-def signal_for_currency(price, name):
-    if name == "Dolar":
-        if price >= 44:
-            return "Yüksek"
-        if price >= 40:
-            return "Dengeli"
-        return "Sakin"
-    if name == "Euro":
-        if price >= 50:
-            return "Güçlü"
-        if price >= 45:
-            return "Dengeli"
-        return "Sakin"
-    if name == "Sterlin":
-        if price >= 58:
-            return "Güçlü"
-        if price >= 54:
-            return "Dengeli"
-        return "Sakin"
-    return "Takipte"
-
-def comment_for_currency(price, name):
-    signal = signal_for_currency(price, name)
-    if signal == "Güçlü":
-        return f"{name} yüksek bandın üst tarafında izleniyor."
-    if signal == "Yüksek":
-        return f"{name} dikkat çeken yüksek seviyelerde kalmaya devam ediyor."
-    if signal == "Dengeli":
-        return f"{name} güçlü ama daha dengeli bir bölgede."
-    return f"{name} daha sakin bir görünüm sergiliyor."
-
-def get_exchange_data():
-    usd_try, eur_try, gbp_try, _ = get_try_rates()
-
-    items = [
-        {"name": "Dolar", "price": usd_try, "change": 0.12},
-        {"name": "Euro", "price": eur_try, "change": -0.08},
-        {"name": "Sterlin", "price": gbp_try, "change": 0.25},
-    ]
-
-    for item in items:
-        item["signal"] = signal_for_currency(item["price"], item["name"])
-        item["comment"] = comment_for_currency(item["price"], item["name"])
-        item["price"] = format_try(item["price"])
-
-    return items
-
-def signal_for_gold(price, name):
-    if name == "Gram Altın":
-        if price >= 6500:
-            return "Güçlü"
-        if price >= 5000:
-            return "Takipte"
-        return "Sakin"
-    return "Tahmini"
-
-def comment_for_gold(name, signal):
-    if signal == "Güçlü":
-        return f"{name} güçlü ve dikkat çeken bir seviyede."
-    if signal == "Takipte":
-        return f"{name} yükseliş eğilimi açısından yakından izlenebilir."
-    if signal == "Tahmini":
-        return f"{name} gram altından türetilmiş yaklaşık değerdir."
-    return f"{name} sakin görünümde."
-
-def get_gold_data():
-    _, _, _, pln_try = get_try_rates()
-
-    gold_url = "https://api.nbp.pl/api/cenyzlota?format=json"
-    gold_response = requests.get(gold_url, timeout=15)
-    gold_response.raise_for_status()
-    gold_json = gold_response.json()
-
-    gold_pln_per_gram = gold_json[-1]["cena"]
-    gram_altin = round(gold_pln_per_gram * pln_try, 2)
-
-    ceyrek = round(gram_altin * 1.65, 2)
-    yarim = round(ceyrek * 2, 2)
-    tam = round(ceyrek * 4, 2)
-
-    items = [
-        {"name": "Gram Altın", "price": gram_altin, "badge": "Canlı"},
-        {"name": "Çeyrek Altın", "price": ceyrek, "badge": "Tahmini"},
-        {"name": "Yarım Altın", "price": yarim, "badge": "Tahmini"},
-        {"name": "Tam Altın", "price": tam, "badge": "Tahmini"},
-    ]
-
-    for item in items:
-        item["signal"] = signal_for_gold(item["price"], item["name"])
-        item["comment"] = comment_for_gold(item["name"], item["signal"])
-        item["price"] = format_try(item["price"])
-
-    return items
-
-def get_bitcoin_try():
-    try:
-        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=try"
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        data = response.json()
-        btc_try = data["bitcoin"]["try"]
-        return btc_try
-    except Exception:
+    if current is None:
         return None
 
-def get_global_data():
-    btc_try = get_bitcoin_try()
-
-    if btc_try is not None:
-        btc_value = f"₺ {format_try_no_decimals(btc_try)}"
-        btc_signal = "Canlı"
-        btc_comment = "Bitcoin güncel piyasa verisiyle gösteriliyor."
+    if previous in (None, 0):
+        pct = 0.0
     else:
-        btc_value = "Yüklenemedi"
-        btc_signal = "Sorun"
-        btc_comment = "Bitcoin verisi şu anda alınamadı."
+        pct = ((current - previous) / previous) * 100
 
-    return [
-        {"name": "Bitcoin", "value": btc_value, "note": "Canlı", "signal": btc_signal, "comment": btc_comment},
-        {"name": "Brent Petrol", "value": "Yakında", "note": "Hazırlanıyor", "signal": "Sırada", "comment": "İleride canlı petrol verisi bağlanabilir."},
-        {"name": "Nasdaq", "value": "Yakında", "note": "Hazırlanıyor", "signal": "Sırada", "comment": "İleride canlı Nasdaq verisi bağlanabilir."},
+    return {
+        "current": float(current),
+        "previous": float(previous if previous is not None else current),
+        "pct": float(pct),
+    }
+
+def signal_from_pct(pct):
+    if pct >= 2:
+        return "Güçlü"
+    if pct > 0:
+        return "Yukarı"
+    if pct <= -2:
+        return "Baskılı"
+    if pct < 0:
+        return "Aşağı"
+    return "Dengeli"
+
+def currency_comment(name, pct):
+    signal = signal_from_pct(pct)
+    if signal == "Güçlü":
+        return f"{name} gün içinde güçlü pozitif bölgede."
+    if signal == "Yukarı":
+        return f"{name} hafif pozitif görünümde."
+    if signal == "Baskılı":
+        return f"{name} satış baskısı altında görünüyor."
+    if signal == "Aşağı":
+        return f"{name} zayıf bölgede fiyatlanıyor."
+    return f"{name} dengeli seyrediyor."
+
+def market_comment(name, pct):
+    signal = signal_from_pct(pct)
+    if signal == "Güçlü":
+        return f"{name} güçlü yükseliş eğiliminde."
+    if signal == "Yukarı":
+        return f"{name} pozitif görünümde."
+    if signal == "Baskılı":
+        return f"{name} belirgin geri çekilme yaşıyor."
+    if signal == "Aşağı":
+        return f"{name} hafif negatif bölgede."
+    return f"{name} yatay / dengeli görünümde."
+
+def get_exchange_data():
+    mapping = [
+        ("USDTRY=X", "Dolar"),
+        ("EURTRY=X", "Euro"),
+        ("GBPTRY=X", "Sterlin"),
     ]
 
-def build_summary(doviz, altin):
+    items = []
+    for symbol, name in mapping:
+        q = quote_from_ticker(symbol)
+        if q is None:
+            price = None
+            pct = 0.0
+        else:
+            price = q["current"]
+            pct = q["pct"]
+
+        items.append({
+            "name": name,
+            "currency_symbol": "₺",
+            "price": format_tr_number(price, 2),
+            "pct_value": pct,
+            "pct_text": format_percent(pct),
+            "signal": signal_from_pct(pct),
+            "comment": currency_comment(name, pct),
+            "raw_price": price or 0.0,
+        })
+
+    return items
+
+def get_gold_data():
+    gold = quote_from_ticker("GC=F")
+    usdtry = quote_from_ticker("USDTRY=X")
+
+    if gold is None or usdtry is None:
+        gram = None
+        gram_pct = 0.0
+    else:
+        # ons altın USD fiyatını gram/TL'ye yaklaşık çevirme
+        gram = (gold["current"] * usdtry["current"]) / 31.1035
+        gram_pct = gold["pct"] + usdtry["pct"]
+
+    if gram is None:
+        ceyrek = yarim = tam = None
+    else:
+        ceyrek = gram * 1.65
+        yarim = ceyrek * 2
+        tam = ceyrek * 4
+
+    items = [
+        {"name": "Gram Altın", "price": gram, "badge": "Canlı", "pct": gram_pct},
+        {"name": "Çeyrek Altın", "price": ceyrek, "badge": "Tahmini", "pct": gram_pct},
+        {"name": "Yarım Altın", "price": yarim, "badge": "Tahmini", "pct": gram_pct},
+        {"name": "Tam Altın", "price": tam, "badge": "Tahmini", "pct": gram_pct},
+    ]
+
+    for item in items:
+        item["pct_value"] = item["pct"]
+        item["pct_text"] = format_percent(item["pct"])
+        item["signal"] = signal_from_pct(item["pct"])
+        item["comment"] = market_comment(item["name"], item["pct"])
+        item["price"] = format_tr_number(item["price"], 2)
+        item["raw_price"] = item["price"]
+
+    return items
+
+def get_global_data():
+    mapping = [
+        ("BTC-TRY", "Bitcoin", "₺ ", 0),
+        ("XU100.IS", "BIST100", "", 2),
+        ("BZ=F", "Brent Petrol", "$ ", 2),
+        ("^IXIC", "Nasdaq", "", 2),
+    ]
+
+    items = []
+    for symbol, name, prefix, decimals in mapping:
+        q = quote_from_ticker(symbol)
+        if q is None:
+            current = None
+            pct = 0.0
+        else:
+            current = q["current"]
+            pct = q["pct"]
+
+        items.append({
+            "name": name,
+            "prefix": prefix,
+            "price": format_tr_number(current, decimals),
+            "pct_value": pct,
+            "pct_text": format_percent(pct),
+            "signal": signal_from_pct(pct),
+            "comment": market_comment(name, pct),
+            "raw_price": current or 0.0,
+        })
+
+    return items
+
+def build_summary(doviz, altin, global_data):
     return [
-        {"name": "Dolar", "desc": f"Güncel seviye ₺ {doviz[0]['price']}", "trend": "Yukarı"},
-        {"name": "Euro", "desc": f"Güncel seviye ₺ {doviz[1]['price']}", "trend": "Stabil"},
-        {"name": "Sterlin", "desc": f"Güncel seviye ₺ {doviz[2]['price']}", "trend": "Güçlü"},
-        {"name": "Gram Altın", "desc": f"Referans fiyat ₺ {altin[0]['price']}", "trend": "Takipte"},
+        {"name": "Dolar", "desc": f"Güncel seviye ₺ {doviz[0]['price']}", "trend": doviz[0]['signal']},
+        {"name": "Euro", "desc": f"Güncel seviye ₺ {doviz[1]['price']}", "trend": doviz[1]['signal']},
+        {"name": "Gram Altın", "desc": f"Referans fiyat ₺ {altin[0]['price']}", "trend": altin[0]['signal']},
+        {"name": "BIST100", "desc": f"Güncel seviye {global_data[1]['price']}", "trend": global_data[1]['signal']},
     ]
 
 def build_insight(doviz, altin, global_data):
-    btc_value = global_data[0]["value"]
     return (
-        f"Dolar ₺{doviz[0]['price']}, Euro ₺{doviz[1]['price']} ve gram altın ₺{altin[0]['price']} "
-        f"seviyesinde izleniyor. Bitcoin tarafında güncel değer {btc_value}."
+        f"Dolar {doviz[0]['pct_text']}, Euro {doviz[1]['pct_text']} ve gram altın {altin[0]['pct_text']} "
+        f"değişim gösteriyor. BIST100 tarafında son görünüm {global_data[1]['signal']}."
     )
 
-def calculate_market_score(doviz, altin):
-    # formatlı stringleri tekrar sayıya çevirelim
-    def parse_tr(value):
-        return float(value.replace(".", "").replace(",", "."))
+def calculate_market_score(doviz, altin, global_data):
+    all_pcts = [abs(x["pct_value"]) for x in doviz]
+    all_pcts.append(abs(altin[0]["pct_value"]))
+    all_pcts.extend(abs(x["pct_value"]) for x in global_data)
 
-    usd = parse_tr(doviz[0]["price"])
-    eur = parse_tr(doviz[1]["price"])
-    gram = parse_tr(altin[0]["price"])
-
-    score = 0
-
-    if usd >= 44:
-        score += 35
-    elif usd >= 40:
-        score += 25
-    else:
-        score += 15
-
-    if eur >= 50:
-        score += 30
-    elif eur >= 45:
-        score += 20
-    else:
-        score += 10
-
-    if gram >= 6500:
-        score += 35
-    elif gram >= 5000:
-        score += 25
-    else:
-        score += 15
-
-    return min(score, 100)
+    avg_move = sum(all_pcts) / len(all_pcts) if all_pcts else 0
+    score = min(100, int(avg_move * 18 + 30))
+    return score
 
 def get_market_score_note(score):
     if score >= 85:
-        return "Piyasada güçlü ve yüksek seviye görünümü var."
+        return "Piyasada oldukça yüksek hareketlilik var."
     if score >= 65:
-        return "Piyasa aktif ve dikkat isteyen bölgede."
+        return "Piyasa aktif ve yakından izlenmeli."
     if score >= 45:
-        return "Piyasa dengeli ama izlemeye değer."
+        return "Piyasa dengeli ama canlı."
     return "Piyasa daha sakin görünümde."
 
-def get_top_asset(doviz, altin):
-    gram = float(altin[0]["price"].replace(".", "").replace(",", "."))
-    sterlin = float(doviz[2]["price"].replace(".", "").replace(",", "."))
-
-    if gram >= 6500:
-        return {"name": "Gram Altın", "reason": "Yüksek ve güçlü görünüm."}
-    if sterlin >= 58:
-        return {"name": "Sterlin", "reason": "Döviz tarafında öne çıkıyor."}
-    return {"name": "Dolar", "reason": "Genel takipte ana referans."}
+def get_top_asset(doviz, altin, global_data):
+    candidates = [
+        {"name": "Dolar", "pct": abs(doviz[0]["pct_value"]), "reason": doviz[0]["comment"]},
+        {"name": "Gram Altın", "pct": abs(altin[0]["pct_value"]), "reason": altin[0]["comment"]},
+        {"name": "Bitcoin", "pct": abs(global_data[0]["pct_value"]), "reason": global_data[0]["comment"]},
+        {"name": "BIST100", "pct": abs(global_data[1]["pct_value"]), "reason": global_data[1]["comment"]},
+        {"name": "Brent Petrol", "pct": abs(global_data[2]["pct_value"]), "reason": global_data[2]["comment"]},
+        {"name": "Nasdaq", "pct": abs(global_data[3]["pct_value"]), "reason": global_data[3]["comment"]},
+    ]
+    return max(candidates, key=lambda x: x["pct"])
 
 def build_long_comment(doviz, altin, global_data, market_score):
     return (
-        f"Genel piyasa skoru {market_score}/100 seviyesinde. Döviz tarafında dolar ve sterlin güçlü görünürken, "
-        f"altın tarafında gram altın dikkat çekici bir seviyede. Global tarafta Bitcoin canlı olarak izleniyor; "
-        f"Brent petrol ve Nasdaq alanları bir sonraki sürüm için hazır bekliyor."
+        f"Genel piyasa skoru {market_score}/100 seviyesinde. Döviz tarafında dolar ve euro izlenirken, "
+        f"gram altın {altin[0]['pct_text']} değişimle dikkat çekiyor. Global tarafta Bitcoin, BIST100, "
+        f"Brent petrol ve Nasdaq aynı ekranda takip edilebiliyor."
     )
 
 @app.route("/")
@@ -605,12 +620,12 @@ def home():
     doviz = get_exchange_data()
     altin = get_gold_data()
     global_data = get_global_data()
-    summary = build_summary(doviz, altin)
+    summary = build_summary(doviz, altin, global_data)
     insight = build_insight(doviz, altin, global_data)
     updated_at = datetime.now().strftime("%d.%m.%Y %H:%M")
-    market_score = calculate_market_score(doviz, altin)
+    market_score = calculate_market_score(doviz, altin, global_data)
     market_score_note = get_market_score_note(market_score)
-    top_asset = get_top_asset(doviz, altin)
+    top_asset = get_top_asset(doviz, altin, global_data)
     long_comment = build_long_comment(doviz, altin, global_data, market_score)
 
     return render_template_string(
