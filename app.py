@@ -50,6 +50,12 @@ HTML = """
       letter-spacing: -0.03em;
     }
 
+    .signature {
+      color: #94a3b8;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+
     .subtitle {
       margin: 0;
       color: #94a3b8;
@@ -277,6 +283,7 @@ HTML = """
     <div class="hero">
       <div class="hero-left">
         <h1 class="title">Piyasa Takip 🚀</h1>
+        <div class="signature">by Yiğit</div>
         <p class="subtitle">Döviz, altın ve önemli piyasa verilerini tek ekranda takip edin.</p>
       </div>
 
