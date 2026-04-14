@@ -348,7 +348,22 @@ HTML = """
 
     .summary-trend {
       font-weight: 900;
-      font-size: 15px;
+      font-size: 22px;
+      line-height: 1;
+      min-width: 28px;
+      text-align: center;
+    }
+
+    .trend-up {
+      color: var(--green);
+    }
+
+    .trend-down {
+      color: var(--red);
+    }
+
+    .trend-neutral {
+      color: var(--gray);
     }
 
     .global-grid {
@@ -613,7 +628,15 @@ HTML = """
               <div class="summary-name">{{ item.name }}</div>
               <div class="summary-desc">{{ item.desc }}</div>
             </div>
-            <div class="summary-trend">{{ item.trend }}</div>
+            <div class="summary-trend">
+              {% if item.trend in ["Yukarı", "Güçlü", "Takipte"] %}
+                <span class="trend-up">▲</span>
+              {% elif item.trend in ["Aşağı", "Baskılı"] %}
+                <span class="trend-down">▼</span>
+              {% else %}
+                <span class="trend-neutral">•</span>
+              {% endif %}
+            </div>
           </div>
           {% endfor %}
 
@@ -858,7 +881,6 @@ HTML = """
 
     function showBrowserNotification(title, body) {
       if (!("Notification" in window)) return;
-
       if (Notification.permission === "granted") {
         new Notification(title, { body });
       }
@@ -983,47 +1005,47 @@ def quote_and_history_from_ticker(symbol, period="7d", interval="1d"):
     history_points = []
 
     try:
-      fi = t.fast_info
-      current = fi.get("lastPrice")
-      previous = fi.get("previousClose")
+        fi = t.fast_info
+        current = fi.get("lastPrice")
+        previous = fi.get("previousClose")
     except Exception:
-      pass
+        pass
 
     try:
-      hist = t.history(period=period, interval=interval, auto_adjust=False)
-      if not hist.empty:
-          history_points = [float(x) for x in hist["Close"].tolist() if not math.isnan(float(x))]
-          if current is None:
-              current = float(hist["Close"].iloc[-1])
-          if previous is None:
-              if len(hist) >= 2:
-                  previous = float(hist["Close"].iloc[-2])
-              else:
-                  previous = float(hist["Close"].iloc[-1])
+        hist = t.history(period=period, interval=interval, auto_adjust=False)
+        if not hist.empty:
+            history_points = [float(x) for x in hist["Close"].tolist() if not math.isnan(float(x))]
+            if current is None:
+                current = float(hist["Close"].iloc[-1])
+            if previous is None:
+                if len(hist) >= 2:
+                    previous = float(hist["Close"].iloc[-2])
+                else:
+                    previous = float(hist["Close"].iloc[-1])
     except Exception:
-      pass
+        pass
 
     if current is None:
-      return None
+        return None
 
     if previous in (None, 0):
-      pct = 0.0
+        pct = 0.0
     else:
-      pct = ((current - previous) / previous) * 100
+        pct = ((current - previous) / previous) * 100
 
     if not history_points:
-      history_points = [float(current), float(current)]
+        history_points = [float(current), float(current)]
 
     return {
-      "current": float(current),
-      "previous": float(previous if previous is not None else current),
-      "pct": float(pct),
-      "history": history_points,
+        "current": float(current),
+        "previous": float(previous if previous is not None else current),
+        "pct": float(pct),
+        "history": history_points,
     }
 
 def build_sparkline_svg(points):
     if not points or len(points) < 2:
-      points = [1, 1]
+        points = [1, 1]
 
     width = 240
     height = 58
@@ -1033,13 +1055,13 @@ def build_sparkline_svg(points):
     max_v = max(points)
 
     if max_v == min_v:
-      max_v += 1
+        max_v += 1
 
     coords = []
     for i, val in enumerate(points):
-      x = padding + (i * (width - padding * 2) / (len(points) - 1))
-      y = padding + ((max_v - val) * (height - padding * 2) / (max_v - min_v))
-      coords.append((x, y))
+        x = padding + (i * (width - padding * 2) / (len(points) - 1))
+        y = padding + ((max_v - val) * (height - padding * 2) / (max_v - min_v))
+        coords.append((x, y))
 
     polyline = " ".join([f"{x:.1f},{y:.1f}" for x, y in coords])
     line_color = "#4ade80" if points[-1] >= points[0] else "#f87171"
@@ -1059,71 +1081,71 @@ def build_sparkline_svg(points):
 
 def signal_from_pct(pct):
     if pct >= 2:
-      return "Güçlü"
+        return "Güçlü"
     if pct > 0:
-      return "Yukarı"
+        return "Yukarı"
     if pct <= -2:
-      return "Baskılı"
+        return "Baskılı"
     if pct < 0:
-      return "Aşağı"
+        return "Aşağı"
     return "Dengeli"
 
 def currency_comment(name, pct):
     signal = signal_from_pct(pct)
     if signal == "Güçlü":
-      return f"{name} gün içinde güçlü pozitif bölgede."
+        return f"{name} gün içinde güçlü pozitif bölgede."
     if signal == "Yukarı":
-      return f"{name} hafif pozitif görünümde."
+        return f"{name} hafif pozitif görünümde."
     if signal == "Baskılı":
-      return f"{name} satış baskısı altında görünüyor."
+        return f"{name} satış baskısı altında görünüyor."
     if signal == "Aşağı":
-      return f"{name} zayıf bölgede fiyatlanıyor."
+        return f"{name} zayıf bölgede fiyatlanıyor."
     return f"{name} dengeli seyrediyor."
 
 def market_comment(name, pct):
     signal = signal_from_pct(pct)
     if signal == "Güçlü":
-      return f"{name} güçlü yükseliş eğiliminde."
+        return f"{name} güçlü yükseliş eğiliminde."
     if signal == "Yukarı":
-      return f"{name} pozitif görünümde."
+        return f"{name} pozitif görünümde."
     if signal == "Baskılı":
-      return f"{name} belirgin geri çekilme yaşıyor."
+        return f"{name} belirgin geri çekilme yaşıyor."
     if signal == "Aşağı":
-      return f"{name} hafif negatif bölgede."
+        return f"{name} hafif negatif bölgede."
     return f"{name} yatay / dengeli görünümde."
 
 def get_exchange_data():
     mapping = [
-      ("USDTRY=X", "Dolar", "usdtry"),
-      ("EURTRY=X", "Euro", "eurtry"),
-      ("GBPTRY=X", "Sterlin", "gbptry"),
+        ("USDTRY=X", "Dolar", "usdtry"),
+        ("EURTRY=X", "Euro", "eurtry"),
+        ("GBPTRY=X", "Sterlin", "gbptry"),
     ]
 
     items = []
     for symbol, name, key in mapping:
-      q = quote_and_history_from_ticker(symbol)
-      if q is None:
-          price = None
-          pct = 0.0
-          chart = build_sparkline_svg([1, 1])
-      else:
-          price = q["current"]
-          pct = q["pct"]
-          chart = build_sparkline_svg(q["history"])
+        q = quote_and_history_from_ticker(symbol)
+        if q is None:
+            price = None
+            pct = 0.0
+            chart = build_sparkline_svg([1, 1])
+        else:
+            price = q["current"]
+            pct = q["pct"]
+            chart = build_sparkline_svg(q["history"])
 
-      items.append({
-          "key": key,
-          "name": name,
-          "currency_symbol": "₺",
-          "price": format_tr_number(price, 2),
-          "pct_value": pct,
-          "pct_text": format_percent(pct),
-          "signal": signal_from_pct(pct),
-          "comment": currency_comment(name, pct),
-          "raw_price": float(price or 0.0),
-          "chart": chart,
-          "display_price": f"₺ {format_tr_number(price, 2)}",
-      })
+        items.append({
+            "key": key,
+            "name": name,
+            "currency_symbol": "₺",
+            "price": format_tr_number(price, 2),
+            "pct_value": pct,
+            "pct_text": format_percent(pct),
+            "signal": signal_from_pct(pct),
+            "comment": currency_comment(name, pct),
+            "raw_price": float(price or 0.0),
+            "chart": chart,
+            "display_price": f"₺ {format_tr_number(price, 2)}",
+        })
 
     return items
 
@@ -1132,133 +1154,131 @@ def get_gold_data():
     usdtry = quote_and_history_from_ticker("USDTRY=X", period="1mo", interval="1d")
 
     if gold is None or usdtry is None:
-      gram = None
-      gram_pct = 0.0
-      gram_history = [1, 1]
+        gram = None
+        gram_pct = 0.0
+        gram_history = [1, 1]
     else:
-      gram = (gold["current"] * usdtry["current"]) / 31.1035
-      gram_pct = gold["pct"] + usdtry["pct"]
+        gram = (gold["current"] * usdtry["current"]) / 31.1035
+        gram_pct = gold["pct"] + usdtry["pct"]
 
-      min_len = min(len(gold["history"]), len(usdtry["history"]))
-      gram_history = []
-      for i in range(min_len):
-          gram_history.append((gold["history"][-min_len + i] * usdtry["history"][-min_len + i]) / 31.1035)
+        min_len = min(len(gold["history"]), len(usdtry["history"]))
+        gram_history = []
+        for i in range(min_len):
+            gram_history.append((gold["history"][-min_len + i] * usdtry["history"][-min_len + i]) / 31.1035)
 
-      if len(gram_history) < 2:
-          gram_history = [gram, gram]
+        if len(gram_history) < 2:
+            gram_history = [gram, gram]
 
     if gram is None:
-      ceyrek = yarim = tam = None
+        ceyrek = yarim = tam = None
     else:
-      ceyrek = gram * 1.65
-      yarim = ceyrek * 2
-      tam = ceyrek * 4
+        ceyrek = gram * 1.65
+        yarim = ceyrek * 2
+        tam = ceyrek * 4
 
     items = [
-      {"key": "gram_altin", "name": "Gram Altın", "price": gram, "badge": "Canlı", "pct": gram_pct, "history": gram_history},
-      {"key": "ceyrek_altin", "name": "Çeyrek Altın", "price": ceyrek, "badge": "Tahmini", "pct": gram_pct, "history": [x * 1.65 for x in gram_history]},
-      {"key": "yarim_altin", "name": "Yarım Altın", "price": yarim, "badge": "Tahmini", "pct": gram_pct, "history": [x * 3.3 for x in gram_history]},
-      {"key": "tam_altin", "name": "Tam Altın", "price": tam, "badge": "Tahmini", "pct": gram_pct, "history": [x * 6.6 for x in gram_history]},
+        {"key": "gram_altin", "name": "Gram Altın", "price": gram, "badge": "Canlı", "pct": gram_pct, "history": gram_history},
+        {"key": "ceyrek_altin", "name": "Çeyrek Altın", "price": ceyrek, "badge": "Tahmini", "pct": gram_pct, "history": [x * 1.65 for x in gram_history]},
+        {"key": "yarim_altin", "name": "Yarım Altın", "price": yarim, "badge": "Tahmini", "pct": gram_pct, "history": [x * 3.3 for x in gram_history]},
+        {"key": "tam_altin", "name": "Tam Altın", "price": tam, "badge": "Tahmini", "pct": gram_pct, "history": [x * 6.6 for x in gram_history]},
     ]
 
     for item in items:
-      raw_price = float(item["price"] or 0.0) if item["price"] is not None else 0.0
-      item["pct_value"] = item["pct"]
-      item["pct_text"] = format_percent(item["pct"])
-      item["signal"] = signal_from_pct(item["pct"])
-      item["comment"] = market_comment(item["name"], item["pct"])
-      item["price"] = format_tr_number(item["price"], 2)
-      item["chart"] = build_sparkline_svg(item["history"])
-      item["raw_price"] = raw_price
-      item["display_price"] = f"₺ {item['price']}"
+        raw_price = float(item["price"] or 0.0) if item["price"] is not None else 0.0
+        item["pct_value"] = item["pct"]
+        item["pct_text"] = format_percent(item["pct"])
+        item["signal"] = signal_from_pct(item["pct"])
+        item["comment"] = market_comment(item["name"], item["pct"])
+        item["price"] = format_tr_number(item["price"], 2)
+        item["chart"] = build_sparkline_svg(item["history"])
+        item["raw_price"] = raw_price
+        item["display_price"] = f"₺ {item['price']}"
 
     return items
 
 def get_global_data():
     mapping = [
-      ("BTC-USD", "Bitcoin", "bitcoin", "$ ", 0),
-      ("XU100.IS", "BIST100", "bist100", "", 2),
-      ("BZ=F", "Brent Petrol", "brent", "$ ", 2),
-      ("^IXIC", "Nasdaq", "nasdaq", "", 2),
+        ("BTC-USD", "Bitcoin", "bitcoin", "$ ", 0),
+        ("XU100.IS", "BIST100", "bist100", "", 2),
+        ("BZ=F", "Brent Petrol", "brent", "$ ", 2),
+        ("^IXIC", "Nasdaq", "nasdaq", "", 2),
     ]
 
     items = []
     for symbol, name, key, prefix, decimals in mapping:
-      q = quote_and_history_from_ticker(symbol, period="1mo", interval="1d")
-      if q is None:
-          current = None
-          pct = 0.0
-          chart = build_sparkline_svg([1, 1])
-      else:
-          current = q["current"]
-          pct = q["pct"]
-          chart = build_sparkline_svg(q["history"])
+        q = quote_and_history_from_ticker(symbol, period="1mo", interval="1d")
+        if q is None:
+            current = None
+            pct = 0.0
+            chart = build_sparkline_svg([1, 1])
+        else:
+            current = q["current"]
+            pct = q["pct"]
+            chart = build_sparkline_svg(q["history"])
 
-      formatted_price = format_tr_number(current, decimals)
-      items.append({
-          "key": key,
-          "name": name,
-          "prefix": prefix,
-          "price": formatted_price,
-          "pct_value": pct,
-          "pct_text": format_percent(pct),
-          "signal": signal_from_pct(pct),
-          "comment": market_comment(name, pct),
-          "raw_price": float(current or 0.0),
-          "chart": chart,
-          "display_price": f"{prefix}{formatted_price}",
-      })
+        formatted_price = format_tr_number(current, decimals)
+        items.append({
+            "key": key,
+            "name": name,
+            "prefix": prefix,
+            "price": formatted_price,
+            "pct_value": pct,
+            "pct_text": format_percent(pct),
+            "signal": signal_from_pct(pct),
+            "comment": market_comment(name, pct),
+            "raw_price": float(current or 0.0),
+            "chart": chart,
+            "display_price": f"{prefix}{formatted_price}",
+        })
 
     return items
 
 def build_summary(doviz, altin, global_data):
     return [
-      {"name": "Dolar", "desc": f"Güncel seviye ₺ {doviz[0]['price']}", "trend": doviz[0]['signal']},
-      {"name": "Euro", "desc": f"Güncel seviye ₺ {doviz[1]['price']}", "trend": doviz[1]['signal']},
-      {"name": "Gram Altın", "desc": f"Referans fiyat ₺ {altin[0]['price']}", "trend": altin[0]['signal']},
-      {"name": "BIST100", "desc": f"Güncel seviye {global_data[1]['price']}", "trend": global_data[1]['signal']},
+        {"name": "Dolar", "desc": f"Güncel seviye ₺ {doviz[0]['price']}", "trend": doviz[0]['signal']},
+        {"name": "Euro", "desc": f"Güncel seviye ₺ {doviz[1]['price']}", "trend": doviz[1]['signal']},
+        {"name": "Gram Altın", "desc": f"Referans fiyat ₺ {altin[0]['price']}", "trend": altin[0]['signal']},
+        {"name": "BIST100", "desc": f"Güncel seviye {global_data[1]['price']}", "trend": global_data[1]['signal']},
     ]
 
 def build_insight(doviz, altin, global_data):
     return (
-      f"Dolar {doviz[0]['pct_text']}, Euro {doviz[1]['pct_text']} ve gram altın {altin[0]['pct_text']} "
-      f"değişim gösteriyor. BIST100 tarafında son görünüm {global_data[1]['signal']}."
+        f"Dolar {doviz[0]['pct_text']}, Euro {doviz[1]['pct_text']} ve gram altın {altin[0]['pct_text']} "
+        f"değişim gösteriyor. BIST100 tarafında son görünüm {global_data[1]['signal']}."
     )
 
 def calculate_market_score(doviz, altin, global_data):
     all_pcts = [abs(x["pct_value"]) for x in doviz]
     all_pcts.append(abs(altin[0]["pct_value"]))
     all_pcts.extend(abs(x["pct_value"]) for x in global_data)
-
     avg_move = sum(all_pcts) / len(all_pcts) if all_pcts else 0
-    score = min(100, int(avg_move * 18 + 30))
-    return score
+    return min(100, int(avg_move * 18 + 30))
 
 def get_market_score_note(score):
     if score >= 85:
-      return "Piyasada oldukça yüksek hareketlilik var."
+        return "Piyasada oldukça yüksek hareketlilik var."
     if score >= 65:
-      return "Piyasa aktif ve yakından izlenmeli."
+        return "Piyasa aktif ve yakından izlenmeli."
     if score >= 45:
-      return "Piyasa dengeli ama canlı."
+        return "Piyasa dengeli ama canlı."
     return "Piyasa daha sakin görünümde."
 
 def get_top_asset(doviz, altin, global_data):
     candidates = [
-      {"name": "Dolar", "pct": abs(doviz[0]["pct_value"]), "reason": doviz[0]["comment"]},
-      {"name": "Gram Altın", "pct": abs(altin[0]["pct_value"]), "reason": altin[0]["comment"]},
-      {"name": "Bitcoin", "pct": abs(global_data[0]["pct_value"]), "reason": global_data[0]["comment"]},
-      {"name": "BIST100", "pct": abs(global_data[1]["pct_value"]), "reason": global_data[1]["comment"]},
-      {"name": "Brent Petrol", "pct": abs(global_data[2]["pct_value"]), "reason": global_data[2]["comment"]},
-      {"name": "Nasdaq", "pct": abs(global_data[3]["pct_value"]), "reason": global_data[3]["comment"]},
+        {"name": "Dolar", "pct": abs(doviz[0]["pct_value"]), "reason": doviz[0]["comment"]},
+        {"name": "Gram Altın", "pct": abs(altin[0]["pct_value"]), "reason": altin[0]["comment"]},
+        {"name": "Bitcoin", "pct": abs(global_data[0]["pct_value"]), "reason": global_data[0]["comment"]},
+        {"name": "BIST100", "pct": abs(global_data[1]["pct_value"]), "reason": global_data[1]["comment"]},
+        {"name": "Brent Petrol", "pct": abs(global_data[2]["pct_value"]), "reason": global_data[2]["comment"]},
+        {"name": "Nasdaq", "pct": abs(global_data[3]["pct_value"]), "reason": global_data[3]["comment"]},
     ]
     return max(candidates, key=lambda x: x["pct"])
 
 def build_long_comment(doviz, altin, global_data, market_score):
     return (
-      f"Genel piyasa skoru {market_score}/100 seviyesinde. Döviz tarafında dolar ve euro izlenirken, "
-      f"gram altın {altin[0]['pct_text']} değişimle dikkat çekiyor. Global tarafta Bitcoin, BIST100, "
-      f"Brent petrol ve Nasdaq aynı ekranda yüzdesel değişimlerle takip edilebiliyor."
+        f"Genel piyasa skoru {market_score}/100 seviyesinde. Döviz tarafında dolar ve euro izlenirken, "
+        f"gram altın {altin[0]['pct_text']} değişimle dikkat çekiyor. Global tarafta Bitcoin, BIST100, "
+        f"Brent petrol ve Nasdaq aynı ekranda yüzdesel değişimlerle takip edilebiliyor."
     )
 
 @app.route("/")
@@ -1276,46 +1296,46 @@ def home():
 
     all_assets = []
     for item in doviz:
-      all_assets.append({
-          "key": item["key"],
-          "name": item["name"],
-          "raw_price": item["raw_price"],
-          "display_price": item["display_price"],
-          "pct_value": item["pct_value"],
-          "pct_text": item["pct_text"],
-      })
+        all_assets.append({
+            "key": item["key"],
+            "name": item["name"],
+            "raw_price": item["raw_price"],
+            "display_price": item["display_price"],
+            "pct_value": item["pct_value"],
+            "pct_text": item["pct_text"],
+        })
     for item in altin:
-      all_assets.append({
-          "key": item["key"],
-          "name": item["name"],
-          "raw_price": item["raw_price"],
-          "display_price": item["display_price"],
-          "pct_value": item["pct_value"],
-          "pct_text": item["pct_text"],
-      })
+        all_assets.append({
+            "key": item["key"],
+            "name": item["name"],
+            "raw_price": item["raw_price"],
+            "display_price": item["display_price"],
+            "pct_value": item["pct_value"],
+            "pct_text": item["pct_text"],
+        })
     for item in global_data:
-      all_assets.append({
-          "key": item["key"],
-          "name": item["name"],
-          "raw_price": item["raw_price"],
-          "display_price": item["display_price"],
-          "pct_value": item["pct_value"],
-          "pct_text": item["pct_text"],
-      })
+        all_assets.append({
+            "key": item["key"],
+            "name": item["name"],
+            "raw_price": item["raw_price"],
+            "display_price": item["display_price"],
+            "pct_value": item["pct_value"],
+            "pct_text": item["pct_text"],
+        })
 
     return render_template_string(
-      HTML,
-      doviz=doviz,
-      altin=altin,
-      summary=summary,
-      insight=insight,
-      global_data=global_data,
-      updated_at=updated_at,
-      market_score=market_score,
-      market_score_note=market_score_note,
-      top_asset=top_asset,
-      long_comment=long_comment,
-      all_assets=all_assets
+        HTML,
+        doviz=doviz,
+        altin=altin,
+        summary=summary,
+        insight=insight,
+        global_data=global_data,
+        updated_at=updated_at,
+        market_score=market_score,
+        market_score_note=market_score_note,
+        top_asset=top_asset,
+        long_comment=long_comment,
+        all_assets=all_assets
     )
 
 if __name__ == "__main__":
